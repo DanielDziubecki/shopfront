@@ -1,5 +1,6 @@
 # Single-binary Tempo with local storage. The metrics generator derives service-graph
 # metrics (who calls whom, with rate, errors and latency) and remote-writes them to Prometheus.
+# Only the service-graphs processor runs: it keeps no traces in memory.
 
 stream_over_http_enabled: true
 
@@ -16,6 +17,7 @@ distributor:
 
 ingester:
   max_block_duration: 5m
+  max_block_bytes: 52428800  # 50 MiB of traces in memory before a block is cut
 
 compactor:
   compaction:
@@ -30,13 +32,9 @@ metrics_generator:
     remote_write:
       - url: http://prometheus:9090/api/v1/write
         send_exemplars: true
-  traces_storage:
-    path: /var/tempo/generator/traces
   processor:
     service_graphs:
       dimensions: []
-    local_blocks:
-      filter_server_spans: false
 
 storage:
   trace:
@@ -49,7 +47,7 @@ storage:
 overrides:
   defaults:
     metrics_generator:
-      processors: [service-graphs, local-blocks]
+      processors: [service-graphs]
 
 usage_report:
   reporting_enabled: false
