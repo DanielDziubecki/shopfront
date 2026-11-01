@@ -1,0 +1,141 @@
+# promtool unit tests: `make check-config` runs them.
+rule_files:
+  - ../slo.rules.yml
+
+evaluation_interval: 15s
+
+tests:
+  - name: checkout errors above 5% page after 1 minute
+    interval: 15s
+    input_series:
+      # 0.1 req/s, 30% failing
+      - series: 'traces_span_metrics_calls_total{service_name="checkout", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_UNSET"}'
+        values: '0+1.05x40'
+      - series: 'traces_span_metrics_calls_total{service_name="checkout", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}'
+        values: '0+0.45x40'
+    alert_rule_test:
+      # pending: above threshold, but not yet for a full minute
+      - eval_time: 1m
+        alertname: CheckoutErrorRateHigh
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: CheckoutErrorRateHigh
+        exp_alerts:
+          - exp_labels:
+              service_name: checkout
+              severity: page
+              slo: availability
+            exp_annotations:
+              summary: "Orders are failing at checkout"
+              description: "30% of checkout requests failed over the last 2 minutes (SLO: under 5%)."
+
+  - name: healthy checkout does not alert
+    interval: 15s
+    input_series:
+      - series: 'traces_span_metrics_calls_total{service_name="checkout", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_UNSET"}'
+        values: '0+1.5x40'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: CheckoutErrorRateHigh
+        exp_alerts: []
+    promql_expr_test:
+      - expr: service:error_ratio:rate2m{service_name="checkout"}
+        eval_time: 8m
+        exp_samples:
+          - labels: 'service:error_ratio:rate2m{service_name="checkout"}'
+            value: 0
+
+  - name: a single failure at very low traffic does not page
+    interval: 15s
+    input_series:
+      - series: 'traces_span_metrics_calls_total{service_name="storefront", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_UNSET"}'
+        values: '0+0.1x40'
+      - series: 'traces_span_metrics_calls_total{service_name="storefront", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_ERROR"}'
+        values: '0x20 1x20'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: StorefrontErrorRateHigh
+        exp_alerts: []
+
+  - name: checkout p95 above 1.5 s pages
+    interval: 15s
+    input_series:
+      # Every request takes between 2 and 5 seconds.
+      - series: 'traces_span_metrics_duration_milliseconds_bucket{service_name="checkout", span_kind="SPAN_KIND_SERVER", le="1000"}'
+        values: '0x40'
+      - series: 'traces_span_metrics_duration_milliseconds_bucket{service_name="checkout", span_kind="SPAN_KIND_SERVER", le="2000"}'
+        values: '0x40'
+      - series: 'traces_span_metrics_duration_milliseconds_bucket{service_name="checkout", span_kind="SPAN_KIND_SERVER", le="5000"}'
+        values: '0+2x40'
+      - series: 'traces_span_metrics_duration_milliseconds_bucket{service_name="checkout", span_kind="SPAN_KIND_SERVER", le="+Inf"}'
+        values: '0+2x40'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: CheckoutLatencyHigh
+        exp_alerts:
+          - exp_labels:
+              service_name: checkout
+              severity: page
+              slo: latency
+            exp_annotations:
+              summary: "Placing an order is slow"
+              description: "p95 checkout latency is 4.85k ms (SLO: under 1500 ms)."
+
+  - name: orders backlog raises a ticket after 2 minutes above 20
+    interval: 15s
+    input_series:
+      - series: 'rabbitmq_message_current{rabbitmq_queue_name="fulfillment.orders", state="ready"}'
+        values: '0 0 0 0 5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 80'
+      - series: 'rabbitmq_message_current{rabbitmq_queue_name="fulfillment.orders", state="unacknowledged"}'
+        values: '10x20'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: OrdersBacklogHigh
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: OrdersBacklogHigh
+        exp_alerts:
+          - exp_labels:
+              rabbitmq_queue_name: fulfillment.orders
+              severity: ticket
+              slo: freshness
+            exp_annotations:
+              summary: "Placed orders are piling up unprocessed"
+              description: "65 orders are waiting in fulfillment.orders."
+
+  - name: a dead-lettered order raises a ticket
+    interval: 15s
+    input_series:
+      - series: 'rabbitmq_message_current{rabbitmq_queue_name="fulfillment.orders.dead", state="ready"}'
+        values: '0 0 0 0 1x12'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: OrdersDeadLettered
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: OrdersDeadLettered
+        exp_alerts:
+          - exp_labels:
+              rabbitmq_queue_name: fulfillment.orders.dead
+              severity: ticket
+              slo: correctness
+            exp_annotations:
+              summary: "Orders were rejected by fulfillment"
+              description: "1 order messages are in the dead-letter queue fulfillment.orders.dead."
+
+  - name: repeated restarts raise a ticket
+    interval: 1m
+    input_series:
+      - series: 'container_restarts_total{container_name="recommendation"}'
+        values: '0 0 1 1 2 2 3'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: ContainerRestarting
+        exp_alerts:
+          - exp_labels:
+              container_name: recommendation
+              severity: ticket
+              slo: availability
+            exp_annotations:
+              summary: "A container keeps restarting"
+              description: "recommendation restarted 3 times in 10 minutes."

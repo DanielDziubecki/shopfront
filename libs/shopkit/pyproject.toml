@@ -1,0 +1,18 @@
+[project]
+name = "shopkit"
+version = "1.0.0"
+description = "Shared service plumbing for Shopfront: telemetry, logging, the app factory and HTTP clients."
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "httpx>=0.28",
+    "opentelemetry-sdk>=1.30",
+    "opentelemetry-exporter-otlp-proto-http>=1.30",
+    "opentelemetry-instrumentation-fastapi>=0.51b0",
+    "opentelemetry-instrumentation-httpx>=0.51b0",
+]
+
+[build-system]
+requires = ["uv_build>=0.8,<0.12"]
+build-backend = "uv_build"

@@ -1,0 +1,67 @@
+name: stack
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stack-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  code:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: Lint, type-check and unit-test
+        run: make check
+
+  config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate configuration and unit-test alert rules
+        run: make check-config
+
+  smoke:
+    needs: [code, config]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start the stack
+        run: make up
+
+      - name: Smoke test and measure footprint
+        run: python3 scripts/smoke.py --warmup 300 --json smoke-report.json
+
+      - name: Collect logs
+        if: always()
+        run: |
+          docker compose -f compose.yaml -f observability/stack-a/compose.yaml ps --all > compose-ps.txt
+          docker compose -f compose.yaml -f observability/stack-a/compose.yaml logs --no-color > compose-logs.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-report
+          path: |
+            smoke-report.json
+            compose-ps.txt
+            compose-logs.txt
+
+      - name: Stop the stack
+        if: always()
+        run: make clean

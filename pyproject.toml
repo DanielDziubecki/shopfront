@@ -1,0 +1,62 @@
+[project]
+name = "shopfront"
+version = "1.0.0"
+description = "An online outdoor-gear store built from Python microservices."
+requires-python = ">=3.13"
+license = "MIT"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["libs/*", "services/*"]
+
+[dependency-groups]
+dev = [
+    "shopkit",
+    "shopfront-catalog",
+    "shopfront-cart",
+    "shopfront-checkout",
+    "shopfront-fulfillment",
+    "shopfront-payment",
+    "shopfront-recommendation",
+    "shopfront-shipping",
+    "shopfront-storefront",
+    "pytest>=8.4",
+    "pyright>=1.1.400",
+    "ruff>=0.12",
+]
+
+[tool.uv.sources]
+shopkit = { workspace = true }
+shopfront-catalog = { workspace = true }
+shopfront-cart = { workspace = true }
+shopfront-checkout = { workspace = true }
+shopfront-fulfillment = { workspace = true }
+shopfront-payment = { workspace = true }
+shopfront-recommendation = { workspace = true }
+shopfront-shipping = { workspace = true }
+shopfront-storefront = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "SIM", "ASYNC", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Product copy uses typographic characters on purpose.
+"services/catalog/**" = ["RUF001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["shopkit", "catalog", "cart", "checkout", "fulfillment", "payment", "recommendation", "shipping", "storefront"]
+
+[tool.pyright]
+include = ["libs", "services"]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+
+[tool.pytest.ini_options]
+testpaths = ["libs", "services"]
+addopts = ["--import-mode=importlib"]

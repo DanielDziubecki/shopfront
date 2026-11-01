@@ -1,0 +1,254 @@
+# Shopfront: application services, data stores and the OpenTelemetry Collector.
+# An observability backend is layered on top (`make up` does this):
+#   docker compose -f compose.yaml -f observability/stack-a/compose.yaml up -d --build
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "5m"
+    max-file: "2"
+
+x-service: &service
+  restart: unless-stopped
+  logging: *logging
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=2)"]
+    start_period: 20s
+    interval: 10s
+    timeout: 5s
+    retries: 5
+
+x-otel-env: &otel-env
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  OTEL_RESOURCE_ATTRIBUTES: service.namespace=shopfront,deployment.environment.name=${DEPLOYMENT_ENVIRONMENT}
+  OTEL_METRIC_EXPORT_INTERVAL: "15000"
+
+networks:
+  default:
+    name: shopfront
+
+services:
+  storefront:
+    <<: *service
+    image: shopfront/storefront:${STOREFRONT_VERSION}
+    container_name: storefront
+    build: { context: ., args: { SERVICE: storefront } }
+    environment:
+      <<: *otel-env
+      SERVICE_VERSION: ${STOREFRONT_VERSION}
+      CATALOG_URL: http://catalog:8000
+      CART_URL: http://cart:8000
+      CHECKOUT_URL: http://checkout:8000
+      RECOMMENDATION_URL: http://recommendation:8000
+    ports:
+      - "127.0.0.1:${STOREFRONT_PORT}:8000"
+    deploy: { resources: { limits: { memory: 192M } } }
+    depends_on:
+      otel-collector: { condition: service_started }
+      catalog: { condition: service_healthy }
+      cart: { condition: service_healthy }
+      checkout: { condition: service_healthy }
+      recommendation: { condition: service_healthy }
+
+  catalog:
+    <<: *service
+    image: shopfront/catalog:${CATALOG_VERSION}
+    container_name: catalog
+    build: { context: ., args: { SERVICE: catalog } }
+    environment:
+      <<: *otel-env
+      SERVICE_VERSION: ${CATALOG_VERSION}
+      DATABASE_URL: postgresql://shop:${POSTGRES_PASSWORD}@postgres:5432/catalog
+      CATALOG_TEXT_NORMALIZATION: ${CATALOG_TEXT_NORMALIZATION}
+    deploy: { resources: { limits: { memory: 160M } } }
+    depends_on:
+      otel-collector: { condition: service_started }
+      postgres: { condition: service_healthy }
+
+  cart:
+    <<: *service
+    image: shopfront/cart:${CART_VERSION}
+    container_name: cart
+    build: { context: ., args: { SERVICE: cart } }
+    environment:
+      <<: *otel-env
+      SERVICE_VERSION: ${CART_VERSION}
+      VALKEY_URL: redis://valkey:6379/0
+    deploy: { resources: { limits: { memory: 160M } } }
+    depends_on:
+      otel-collector: { condition: service_started }
+      valkey: { condition: service_healthy }
+
+  checkout:
+    <<: *service
+    image: shopfront/checkout:${CHECKOUT_VERSION}
+    container_name: checkout
+    build: { context: ., args: { SERVICE: checkout } }
+    environment:
+      <<: *otel-env
+      SERVICE_VERSION: ${CHECKOUT_VERSION}
+      CART_URL: http://cart:8000
+      CATALOG_URL: http://catalog:8000
+      PAYMENT_URL: http://payment:8000
+      SHIPPING_URL: http://shipping:8000
+      RABBITMQ_URL: amqp://shop:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+    deploy: { resources: { limits: { memory: 192M } } }
+    depends_on:
+      otel-collector: { condition: service_started }
+      cart: { condition: service_healthy }
+      catalog: { condition: service_healthy }
+      payment: { condition: service_healthy }
+      shipping: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  payment:
+    <<: *service
+    image: shopfront/payment:${PAYMENT_VERSION}
+    container_name: payment
+    build: { context: ., args: { SERVICE: payment } }
+    environment:
+      <<: *otel-env
+      SERVICE_VERSION: ${PAYMENT_VERSION}
+      PAYMENT_TOKEN_CACHE: ${PAYMENT_TOKEN_CACHE}
+    deploy: { resources: { limits: { memory: 160M } } }
+    depends_on:
+      otel-collector: { condition: service_started }
+
+  shipping:
+    <<: *service
+    image: shopfront/shipping:${SHIPPING_VERSION}
+    container_name: shipping
+    build: { context: ., args: { SERVICE: shipping } }
+    environment:
+      <<: *otel-env
+      SERVICE_VERSION: ${SHIPPING_VERSION}
+      DATABASE_URL: postgresql://shop:${POSTGRES_PASSWORD}@postgres:5432/shipping
+    deploy: { resources: { limits: { memory: 160M } } }
+    depends_on:
+      otel-collector: { condition: service_started }
+      postgres: { condition: service_healthy }
+
+  recommendation:
+    <<: *service
+    image: shopfront/recommendation:${RECOMMENDATION_VERSION}
+    container_name: recommendation
+    build: { context: ., args: { SERVICE: recommendation } }
+    environment:
+      <<: *otel-env
+      SERVICE_VERSION: ${RECOMMENDATION_VERSION}
+      CATALOG_URL: http://catalog:8000
+      RECOMMENDATION_CACHE: ${RECOMMENDATION_CACHE}
+    deploy: { resources: { limits: { memory: 256M } } }
+    depends_on:
+      otel-collector: { condition: service_started }
+      catalog: { condition: service_healthy }
+
+  fulfillment:
+    image: shopfront/fulfillment:${FULFILLMENT_VERSION}
+    container_name: fulfillment
+    build: { context: ., args: { SERVICE: fulfillment } }
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      <<: *otel-env
+      SERVICE_VERSION: ${FULFILLMENT_VERSION}
+      DATABASE_URL: postgresql://shop:${POSTGRES_PASSWORD}@postgres:5432/orders
+      RABBITMQ_URL: amqp://shop:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+    deploy: { resources: { limits: { memory: 160M } } }
+    depends_on:
+      otel-collector: { condition: service_started }
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  loadgen:
+    image: shopfront/loadgen:${LOADGEN_VERSION}
+    container_name: loadgen
+    build: { context: ./loadgen }
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      USERS: ${LOADGEN_USERS}
+      HOST: http://storefront:8000
+    deploy: { resources: { limits: { memory: 256M } } }
+    depends_on:
+      storefront: { condition: service_healthy }
+
+  # **************************
+  # Data stores and messaging
+  # **************************
+
+  postgres:
+    image: ${POSTGRES_IMAGE}
+    container_name: postgres
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: shop
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy: { resources: { limits: { memory: 256M } } }
+
+  valkey:
+    image: ${VALKEY_IMAGE}
+    container_name: valkey
+    restart: unless-stopped
+    logging: *logging
+    command: ["valkey-server", "--save", "", "--appendonly", "no", "--maxmemory", "48mb"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy: { resources: { limits: { memory: 64M } } }
+
+  rabbitmq:
+    image: ${RABBITMQ_IMAGE}
+    container_name: rabbitmq
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      RABBITMQ_DEFAULT_USER: shop
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    ports:
+      - "127.0.0.1:${RABBITMQ_UI_PORT}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      start_period: 20s
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    deploy: { resources: { limits: { memory: 384M } } }
+
+  # *********
+  # Telemetry
+  # *********
+
+  otel-collector:
+    image: ${COLLECTOR_IMAGE}
+    container_name: otel-collector
+    restart: unless-stopped
+    logging: *logging
+    command: ["--config=/etc/otelcol/config.yml"]
+    user: "0:0"  # reads the Docker socket for container metrics
+    volumes:
+      - ${DOCKER_SOCK}:/var/run/docker.sock:ro
+      - ${OTEL_COLLECTOR_CONFIG}:/etc/otelcol/config.yml:ro
+    environment:
+      POSTGRES_MONITORING_PASSWORD: monitoring
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      GOMEMLIMIT: 320MiB
+    deploy: { resources: { limits: { memory: 400M } } }
+
+volumes:
+  postgres-data:
+  rabbitmq-data:
