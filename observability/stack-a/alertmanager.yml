@@ -1,0 +1,17 @@
+# No notification channel is configured yet: alerts are visible in Alertmanager and Grafana.
+# Add a receiver (webhook, email, chat) under `receivers` and point `route.receiver` at it.
+
+route:
+  receiver: "none"
+  group_by: ["alertname", "service_name"]
+  group_wait: 15s
+  group_interval: 1m
+  repeat_interval: 4h
+
+receivers:
+  - name: "none"
+
+inhibit_rules:
+  - source_matchers: [severity="page"]
+    target_matchers: [severity="ticket"]
+    equal: ["service_name"]

@@ -1,0 +1,171 @@
+# Service-level alerts for Shopfront. Symptom-based: each alert describes what users or
+# downstream systems experience, not a suspected cause.
+#
+# Request metrics come from the OTel Collector's span_metrics connector: one series per
+# service, span name, span kind and status. "Requests" are server spans, plus consumer spans
+# for queue consumers.
+
+groups:
+  - name: shopfront-slo-recording
+    interval: 15s
+    rules:
+      - record: service:requests:rate2m
+        expr: |
+          sum by (service_name) (
+            rate(traces_span_metrics_calls_total{span_kind=~"SPAN_KIND_SERVER|SPAN_KIND_CONSUMER"}[2m])
+          )
+      - record: service:errors:rate2m
+        expr: |
+          sum by (service_name) (
+            rate(traces_span_metrics_calls_total{span_kind=~"SPAN_KIND_SERVER|SPAN_KIND_CONSUMER", status_code="STATUS_CODE_ERROR"}[2m])
+          )
+      - record: service:error_ratio:rate2m
+        expr: |
+          (service:errors:rate2m or service:requests:rate2m * 0)
+            / service:requests:rate2m
+      - record: service:latency_p95_ms:rate2m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (service_name, le) (
+              rate(traces_span_metrics_duration_milliseconds_bucket{span_kind="SPAN_KIND_SERVER"}[2m])
+            )
+          )
+      - record: service:requests:rate5m
+        expr: |
+          sum by (service_name) (
+            rate(traces_span_metrics_calls_total{span_kind=~"SPAN_KIND_SERVER|SPAN_KIND_CONSUMER"}[5m])
+          )
+
+  - name: shopfront-slo
+    rules:
+      # Error ratio alerts need a minimum request rate so a handful of requests can't page.
+      - alert: FrontendErrorRateHigh
+        expr: |
+          service:error_ratio:rate2m{service_name="frontend"} > 0.05
+            and service:requests:rate2m{service_name="frontend"} > 0.1
+        for: 1m
+        labels:
+          severity: page
+          slo: availability
+        annotations:
+          summary: "Storefront requests are failing"
+          description: "{{ $value | humanizePercentage }} of frontend requests failed over the last 2 minutes (SLO: under 5%)."
+
+      - alert: FrontendLatencyHigh
+        expr: service:latency_p95_ms:rate2m{service_name="frontend"} > 1000
+        for: 2m
+        labels:
+          severity: page
+          slo: latency
+        annotations:
+          summary: "Storefront is slow"
+          description: "p95 frontend latency is {{ $value | humanize }} ms (SLO: under 1000 ms)."
+
+      - alert: CheckoutErrorRateHigh
+        expr: |
+          service:error_ratio:rate2m{service_name="checkout"} > 0.05
+            and service:requests:rate2m{service_name="checkout"} > 0.01
+        for: 1m
+        labels:
+          severity: page
+          slo: availability
+        annotations:
+          summary: "Orders are failing at checkout"
+          description: "{{ $value | humanizePercentage }} of checkout requests failed over the last 2 minutes (SLO: under 5%)."
+
+      - alert: CheckoutLatencyHigh
+        expr: service:latency_p95_ms:rate2m{service_name="checkout"} > 2000
+        for: 1m
+        labels:
+          severity: page
+          slo: latency
+        annotations:
+          summary: "Placing an order is slow"
+          description: "p95 checkout latency is {{ $value | humanize }} ms (SLO: under 2000 ms)."
+
+      - alert: CartErrorRateHigh
+        expr: |
+          service:error_ratio:rate2m{service_name="cart"} > 0.05
+            and service:requests:rate2m{service_name="cart"} > 0.05
+        for: 1m
+        labels:
+          severity: page
+          slo: availability
+        annotations:
+          summary: "Cart requests are failing"
+          description: "{{ $value | humanizePercentage }} of cart requests failed over the last 2 minutes (SLO: under 5%)."
+
+      - alert: CartLatencyHigh
+        expr: service:latency_p95_ms:rate2m{service_name="cart"} > 1000
+        for: 1m
+        labels:
+          severity: page
+          slo: latency
+        annotations:
+          summary: "Cart is slow"
+          description: "p95 cart latency is {{ $value | humanize }} ms (SLO: under 1000 ms)."
+
+      - alert: ProductCatalogErrorRateHigh
+        expr: |
+          service:error_ratio:rate2m{service_name="product-catalog"} > 0.02
+            and service:requests:rate2m{service_name="product-catalog"} > 0.05
+        for: 2m
+        labels:
+          severity: ticket
+          slo: availability
+        annotations:
+          summary: "Product catalog requests are failing"
+          description: "{{ $value | humanizePercentage }} of product catalog requests failed over the last 2 minutes (SLO: under 2%)."
+
+      - alert: RecommendationLatencyHigh
+        expr: service:latency_p95_ms:rate2m{service_name="recommendation"} > 500
+        for: 2m
+        labels:
+          severity: ticket
+          slo: latency
+        annotations:
+          summary: "Recommendations are slow"
+          description: "p95 recommendation latency is {{ $value | humanize }} ms (SLO: under 500 ms)."
+
+      - alert: ShippingErrorRateHigh
+        expr: |
+          service:error_ratio:rate2m{service_name="shipping"} > 0.05
+            and service:requests:rate2m{service_name="shipping"} > 0.01
+        for: 1m
+        labels:
+          severity: page
+          slo: availability
+        annotations:
+          summary: "Shipping quotes are failing"
+          description: "{{ $value | humanizePercentage }} of shipping requests failed over the last 2 minutes (SLO: under 5%)."
+
+      - alert: OrdersConsumerLagHigh
+        expr: max by (group, topic) (kafka_consumer_group_lag_sum_ratio{topic="orders"}) > 10
+        for: 2m
+        labels:
+          severity: ticket
+          slo: freshness
+        annotations:
+          summary: "Orders are piling up unprocessed"
+          description: "Consumer group {{ $labels.group }} is {{ $value }} messages behind on {{ $labels.topic }}."
+
+      - alert: FrontendTrafficSurge
+        expr: |
+          service:requests:rate5m{service_name="frontend"}
+            > 3 * avg_over_time(service:requests:rate5m{service_name="frontend"}[30m] offset 10m)
+        for: 2m
+        labels:
+          severity: ticket
+          slo: capacity
+        annotations:
+          summary: "Storefront traffic is far above normal"
+          description: "Frontend receives {{ $value | humanize }} requests/s, more than 3x its recent average."
+
+      - alert: ContainerRestarting
+        expr: increase(container_restarts_total[10m]) >= 2
+        labels:
+          severity: ticket
+          slo: availability
+        annotations:
+          summary: "A container keeps restarting"
+          description: "{{ $labels.container_name }} restarted {{ $value | humanize }} times in 10 minutes."

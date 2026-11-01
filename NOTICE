@@ -1,0 +1,15 @@
+Shopfront
+Copyright 2026 Daniel Dziubecki
+
+This product includes software from the OpenTelemetry Demo
+(https://github.com/open-telemetry/opentelemetry-demo), release 3.1.0,
+Copyright The OpenTelemetry Authors, licensed under the Apache License 2.0 (see LICENSE).
+
+Changes from the original:
+- Removed services and tooling not used here (fraud detection, UI and documentation
+  services, AI agent services, Jaeger, OpenSearch, OpAMP, profiling, mobile app, tests).
+- Merged the compose layers into a single `compose.yaml` and moved the observability
+  backend into `observability/` (Prometheus, Alertmanager, Loki, Tempo, Grafana).
+- New OpenTelemetry Collector, Prometheus, Alertmanager, Loki, Tempo and Grafana
+  configuration; Grafana dashboards adapted to these data sources.
+- Added service-level alert rules (`alerts/`), a smoke test and CI.

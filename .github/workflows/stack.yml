@@ -1,0 +1,63 @@
+name: stack
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stack-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate configuration and unit-test alert rules
+        run: make check-config
+
+  smoke:
+    needs: config
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Pull images
+        run: make pull
+
+      - name: Start the stack
+        run: make up
+
+      - name: Smoke test and measure footprint
+        run: python3 scripts/smoke.py --warmup 300 --json smoke-report.json
+
+      - name: Collect logs
+        if: always()
+        run: |
+          docker compose -f compose.yaml -f observability/stack-a/compose.yaml ps --all > compose-ps.txt
+          docker compose -f compose.yaml -f observability/stack-a/compose.yaml logs --no-color > compose-logs.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-report
+          path: |
+            smoke-report.json
+            compose-ps.txt
+            compose-logs.txt
+
+      - name: Stop the stack
+        if: always()
+        run: make clean
