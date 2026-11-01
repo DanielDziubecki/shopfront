@@ -81,7 +81,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 600M
+          memory: 1G
     restart: unless-stopped
     ports:
       - "127.0.0.1:${TEMPO_PORT}:3200"
