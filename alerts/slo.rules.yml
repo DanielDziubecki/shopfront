@@ -153,17 +153,19 @@ groups:
           summary: "Orders were rejected by fulfillment"
           description: "{{ $value }} order messages were written to {{ $labels.topic }} in the last 10 minutes."
 
+      # Compared with the median of the previous half hour, so an earlier short spike
+      # doesn't raise the baseline.
       - alert: StorefrontTrafficSurge
         expr: |
-          service:requests:rate5m{service_name="storefront"}
-            > 3 * avg_over_time(service:requests:rate5m{service_name="storefront"}[30m] offset 10m)
-        for: 2m
+          service:requests:rate2m{service_name="storefront"}
+            > 3 * quantile_over_time(0.5, service:requests:rate5m{service_name="storefront"}[30m] offset 5m)
+        for: 1m
         labels:
           severity: ticket
           slo: capacity
         annotations:
           summary: "Shop traffic is far above normal"
-          description: "The storefront receives {{ $value | humanize }} requests/s, more than 3x its recent average."
+          description: "The storefront receives {{ $value | humanize }} requests/s, more than 3x its recent median."
 
       - alert: ContainerRestarting
         expr: increase(container_restarts_total[10m]) >= 2

@@ -17,6 +17,7 @@ distributor:
 
 ingester:
   max_block_duration: 5m
+  max_block_bytes: 52428800  # 50 MiB of traces in memory before a block is cut
 
 compactor:
   compaction:

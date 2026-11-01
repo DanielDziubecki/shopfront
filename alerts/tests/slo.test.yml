@@ -142,3 +142,24 @@ tests:
             exp_annotations:
               summary: "A container keeps restarting"
               description: "recommendation restarted 3 times in 10 minutes."
+
+  - name: traffic six times the recent median raises a ticket, despite an earlier spike
+    interval: 1m
+    input_series:
+      # 10 req/s, a 3-minute spike to 60 req/s around minute 15, back to 10, then 60 req/s from minute 40.
+      - series: 'traces_span_metrics_calls_total{service_name="storefront", span_kind="SPAN_KIND_SERVER", status_code="STATUS_CODE_UNSET"}'
+        values: '0+600x14 8400+3600x3 19200+600x21 31800+3600x10'
+    alert_rule_test:
+      - eval_time: 39m
+        alertname: StorefrontTrafficSurge
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: StorefrontTrafficSurge
+        exp_alerts:
+          - exp_labels:
+              service_name: storefront
+              severity: ticket
+              slo: capacity
+            exp_annotations:
+              summary: "Shop traffic is far above normal"
+              description: "The storefront receives 60 requests/s, more than 3x its recent median."
