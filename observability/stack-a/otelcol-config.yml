@@ -1,0 +1,98 @@
+# OpenTelemetry Collector for observability stack A:
+#   traces -> Tempo, logs -> Loki, metrics -> Prometheus (OTLP receiver).
+# Request metrics (rate, errors, latency) are derived from spans by the span_metrics connector.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  # Per-container CPU, memory, throttling and restarts.
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+    collection_interval: 15s
+    metrics:
+      container.cpu.throttling_data.periods:
+        enabled: true
+      container.cpu.throttling_data.throttled_periods:
+        enabled: true
+      container.memory.rss:
+        enabled: true
+      container.restarts:
+        enabled: true
+      container.uptime:
+        enabled: true
+  http_check/storefront:
+    targets:
+      - endpoint: http://storefront:8000/healthz
+    collection_interval: 15s
+  redis/valkey:
+    endpoint: valkey:6379
+    collection_interval: 15s
+  postgresql:
+    endpoint: postgres:5432
+    username: monitoring
+    password: ${env:POSTGRES_MONITORING_PASSWORD}
+    databases: [catalog, shipping, orders]
+    collection_interval: 15s
+    tls:
+      insecure: true
+  kafkametrics:
+    brokers: [kafka:9092]
+    scrapers: [brokers, topics, consumers]
+    collection_interval: 15s
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  resource_detection:
+    detectors: [env, docker]
+  # SDK self-observability metrics arrive with empty data points, which Prometheus rejects.
+  filter/drop_sdk_metrics:
+    error_mode: ignore
+    metrics:
+      metric:
+        - 'IsMatch(name, "^otel\\.sdk\\.")'
+
+connectors:
+  span_metrics:
+    metrics_flush_interval: 15s
+
+exporters:
+  otlp_grpc/tempo:
+    endpoint: "tempo:4317"
+    tls:
+      insecure: true
+    sending_queue:
+      batch:
+  otlp_http/prometheus:
+    endpoint: "http://prometheus:9090/api/v1/otlp"
+    tls:
+      insecure: true
+    sending_queue:
+      batch:
+  otlp_http/loki:
+    endpoint: "http://loki:3100/otlp"
+    tls:
+      insecure: true
+    sending_queue:
+      batch:
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [resource_detection, memory_limiter]
+      exporters: [otlp_grpc/tempo, span_metrics]
+    metrics:
+      receivers: [otlp, span_metrics, docker_stats, http_check/storefront, redis/valkey, postgresql, kafkametrics]
+      processors: [resource_detection, memory_limiter, filter/drop_sdk_metrics]
+      exporters: [otlp_http/prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [resource_detection, memory_limiter]
+      exporters: [otlp_http/loki]

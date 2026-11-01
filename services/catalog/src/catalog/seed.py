@@ -1,0 +1,88 @@
+"""Initial product data, loaded when the products table is empty."""
+
+PRODUCTS: list[dict[str, object]] = [
+    {
+        "id": "TENT-2P",
+        "name": "Ridgeline 2-Person Tent",
+        "description": "Freestanding three–season tent that pitches in under five minutes.",
+        "price_cents": 24900,
+        "categories": ["camping", "shelter"],
+    },
+    {
+        "id": "TENT-4P",
+        "name": "Basecamp 4-Person Tent",
+        "description": "Family tent with two doors, two vestibules and room to stand.",
+        "price_cents": 38900,
+        "categories": ["camping", "shelter"],
+    },
+    {
+        "id": "BAG-0C",
+        "name": "Summit 0°C Sleeping Bag",
+        "description": "Down–filled mummy bag that packs to the size of a loaf of bread.",
+        "price_cents": 18900,
+        "categories": ["camping", "sleep"],
+    },
+    {
+        "id": "PAD-AIR",
+        "name": "Cloudrest Air Pad",
+        "description": "Insulated air pad, 7 cm thick, with a pump sack that doubles as a dry bag.",
+        "price_cents": 12900,
+        "categories": ["camping", "sleep"],
+    },
+    {
+        "id": "STOVE-CAN",
+        "name": "Pocket Canister Stove",
+        "description": "Boils a litre of water in three and a half minutes; weighs 85 g.",
+        "price_cents": 4900,
+        "categories": ["camping", "kitchen"],
+    },
+    {
+        "id": "POT-MOKA",
+        "name": "Trail Moka Pot",
+        "description": "Brews café-style espresso on any camp stove. Aluminium, three cups.",
+        "price_cents": 3900,
+        "categories": ["camping", "kitchen"],
+    },
+    {
+        "id": "LAMP-HEAD",
+        "name": "Lumen 400 Headlamp",
+        "description": "Rechargeable headlamp with a red night mode and a lock–out switch.",
+        "price_cents": 5900,
+        "categories": ["hiking", "lighting"],
+    },
+    {
+        "id": "PACK-45",
+        "name": "Traverse 45 L Backpack",
+        "description": "Ventilated back panel, hip–belt pockets and a removable lid.",
+        "price_cents": 21900,
+        "categories": ["hiking", "packs"],
+    },
+    {
+        "id": "PACK-20",
+        "name": "Daytrip 20 L Pack",
+        "description": "Light day pack with a hydration sleeve and rain cover.",
+        "price_cents": 7900,
+        "categories": ["hiking", "packs"],
+    },
+    {
+        "id": "POLE-CARB",
+        "name": "Carbon Trekking Poles",
+        "description": "Pair of folding carbon poles with cork grips; 240 g each.",
+        "price_cents": 13900,
+        "categories": ["hiking"],
+    },
+    {
+        "id": "FILTER-SQZ",
+        "name": "Squeeze Water Filter",
+        "description": "Filters 0.1 micron; screws onto standard bottles. It’s good for 100 000 L.",
+        "price_cents": 3900,
+        "categories": ["hiking", "water"],
+    },
+    {
+        "id": "JACKET-RAIN",
+        "name": "Stormshell Rain Jacket",
+        "description": "Three–layer waterproof shell with pit zips and a helmet–compatible hood.",
+        "price_cents": 27900,
+        "categories": ["clothing"],
+    },
+]

@@ -1,0 +1,24 @@
+[project]
+name = "shopfront-fulfillment"
+version = "1.0.0"
+description = "Worker that consumes placed orders, renders invoices and records orders in PostgreSQL."
+requires-python = ">=3.13"
+dependencies = [
+    "shopkit",
+    "aiokafka>=0.12",
+    "asyncpg>=0.30",
+    "opentelemetry-instrumentation-asyncpg>=0.51b0",
+]
+
+[project.scripts]
+fulfillment = "fulfillment.main:run"
+
+[tool.uv.sources]
+shopkit = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.8,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "fulfillment"
