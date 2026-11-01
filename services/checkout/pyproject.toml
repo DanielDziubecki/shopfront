@@ -5,8 +5,8 @@ description = "Places orders: prices the cart, quotes shipping, charges the card
 requires-python = ">=3.13"
 dependencies = [
     "shopkit",
-    "aio-pika>=9.5",
-    "opentelemetry-instrumentation-aio-pika>=0.51b0",
+    "aiokafka>=0.12",
+    "opentelemetry-instrumentation-aiokafka>=0.51b0",
 ]
 
 [project.scripts]

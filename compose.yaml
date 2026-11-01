@@ -91,7 +91,7 @@ services:
       CATALOG_URL: http://catalog:8000
       PAYMENT_URL: http://payment:8000
       SHIPPING_URL: http://shipping:8000
-      RABBITMQ_URL: amqp://shop:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      KAFKA_BOOTSTRAP: kafka:9092
     deploy: { resources: { limits: { memory: 192M } } }
     depends_on:
       otel-collector: { condition: service_started }
@@ -99,7 +99,7 @@ services:
       catalog: { condition: service_healthy }
       payment: { condition: service_healthy }
       shipping: { condition: service_healthy }
-      rabbitmq: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
 
   payment:
     <<: *service
@@ -153,12 +153,12 @@ services:
       <<: *otel-env
       SERVICE_VERSION: ${FULFILLMENT_VERSION}
       DATABASE_URL: postgresql://shop:${POSTGRES_PASSWORD}@postgres:5432/orders
-      RABBITMQ_URL: amqp://shop:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      KAFKA_BOOTSTRAP: kafka:9092
     deploy: { resources: { limits: { memory: 160M } } }
     depends_on:
       otel-collector: { condition: service_started }
       postgres: { condition: service_healthy }
-      rabbitmq: { condition: service_healthy }
+      kafka-init: { condition: service_completed_successfully }
 
   loadgen:
     image: shopfront/loadgen:${LOADGEN_VERSION}
@@ -209,25 +209,50 @@ services:
       retries: 10
     deploy: { resources: { limits: { memory: 64M } } }
 
-  rabbitmq:
-    image: ${RABBITMQ_IMAGE}
-    container_name: rabbitmq
+  kafka:
+    image: ${KAFKA_IMAGE}
+    container_name: kafka
     restart: unless-stopped
     logging: *logging
     environment:
-      RABBITMQ_DEFAULT_USER: shop
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
-    volumes:
-      - rabbitmq-data:/var/lib/rabbitmq
-    ports:
-      - "127.0.0.1:${RABBITMQ_UI_PORT}:15672"
+      CLUSTER_ID: shopfront-kafka-0001AA
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx256m
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      test: ["CMD", "nc", "-z", "localhost", "9092"]
       start_period: 20s
-      interval: 10s
-      timeout: 10s
-      retries: 10
-    deploy: { resources: { limits: { memory: 384M } } }
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    deploy: { resources: { limits: { memory: 640M } } }
+
+  # Creates the topics once Kafka is up; automatic topic creation is off.
+  kafka-init:
+    image: ${KAFKA_IMAGE}
+    container_name: kafka-init
+    restart: "no"
+    logging: *logging
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        set -e
+        topics=/opt/kafka/bin/kafka-topics.sh
+        $$topics --bootstrap-server kafka:9092 --create --if-not-exists --topic orders --partitions 3 --replication-factor 1
+        $$topics --bootstrap-server kafka:9092 --create --if-not-exists --topic orders.dlq --partitions 1 --replication-factor 1
+    deploy: { resources: { limits: { memory: 256M } } }
+    depends_on:
+      kafka: { condition: service_healthy }
 
   # *********
   # Telemetry
@@ -245,10 +270,8 @@ services:
       - ${OTEL_COLLECTOR_CONFIG}:/etc/otelcol/config.yml:ro
     environment:
       POSTGRES_MONITORING_PASSWORD: monitoring
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       GOMEMLIMIT: 320MiB
     deploy: { resources: { limits: { memory: 400M } } }
 
 volumes:
   postgres-data:
-  rabbitmq-data:

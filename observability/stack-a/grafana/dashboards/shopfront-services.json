@@ -148,7 +148,7 @@
     {
       "id": 4,
       "type": "timeseries",
-      "title": "Order queues",
+      "title": "Orders topic",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -184,8 +184,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (rabbitmq_queue_name, state) (rabbitmq_message_current{rabbitmq_queue_name=~\"fulfillment.*\"})",
-          "legendFormat": "{{rabbitmq_queue_name}} {{state}}"
+          "expr": "sum by (group) (kafka_consumer_group_lag_sum_ratio{topic=\"orders\"})",
+          "legendFormat": "lag: {{group}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (topic) (kafka_partition_current_offset_ratio{topic=\"orders.dlq\"})",
+          "legendFormat": "dead letters: {{topic}}"
         }
       ]
     },

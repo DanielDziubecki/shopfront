@@ -5,9 +5,8 @@ description = "Worker that consumes placed orders, renders invoices and records 
 requires-python = ">=3.13"
 dependencies = [
     "shopkit",
-    "aio-pika>=9.5",
+    "aiokafka>=0.12",
     "asyncpg>=0.30",
-    "opentelemetry-instrumentation-aio-pika>=0.51b0",
     "opentelemetry-instrumentation-asyncpg>=0.51b0",
 ]
 

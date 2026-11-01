@@ -51,14 +51,15 @@ def containers() -> list[dict[str, Any]]:
 
 
 def wait_for_containers(timeout_s: int) -> list[str]:
-    """Wait until every container is running and none is starting or unhealthy."""
+    """Wait until every container is running and healthy; one-shot jobs must have exited with 0."""
     deadline = time.monotonic() + timeout_s
     problems: list[str] = []
     while time.monotonic() < deadline:
         problems = [
             f"{c['Names']}: {c['Status']}"
             for c in containers()
-            if c["State"] != "running" or "starting" in c["Status"] or "unhealthy" in c["Status"]
+            if not (c["State"] == "exited" and c["Status"].startswith("Exited (0)"))
+            and (c["State"] != "running" or "starting" in c["Status"] or "unhealthy" in c["Status"])
         ]
         if not problems:
             return []

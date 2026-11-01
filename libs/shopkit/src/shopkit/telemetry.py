@@ -79,7 +79,7 @@ def setup(service_name: str) -> None:
     root = logging.getLogger()
     root.handlers = [stdout, LoggingHandler(logger_provider=logger_provider)]
     root.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
-    for noisy in ("httpx", "httpcore", "uvicorn.access", "aiormq", "aio_pika"):
+    for noisy in ("httpx", "httpcore", "uvicorn.access", "aiokafka"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
     HTTPXClientInstrumentor().instrument()

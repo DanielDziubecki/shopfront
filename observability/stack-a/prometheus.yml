@@ -34,8 +34,6 @@ otlp:
     - host.name
     - postgresql.database.name
     - postgresql.table.name
-    - rabbitmq.queue.name
-    - rabbitmq.vhost.name
     # https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/spanmetricsconnector#known-limitation-the-single-writer-principle
     - collector.instance.id
 

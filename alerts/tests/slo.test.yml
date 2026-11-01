@@ -84,10 +84,10 @@ tests:
   - name: orders backlog raises a ticket after 2 minutes above 20
     interval: 15s
     input_series:
-      - series: 'rabbitmq_message_current{rabbitmq_queue_name="fulfillment.orders", state="ready"}'
+      - series: 'kafka_consumer_group_lag_sum_ratio{group="fulfillment", topic="orders"}'
         values: '0 0 0 0 5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 80'
-      - series: 'rabbitmq_message_current{rabbitmq_queue_name="fulfillment.orders", state="unacknowledged"}'
-        values: '10x20'
+      - series: 'kafka_consumer_group_lag_sum_ratio{group="other", topic="orders"}'
+        values: '500x20'
     alert_rule_test:
       - eval_time: 2m
         alertname: OrdersBacklogHigh
@@ -96,32 +96,35 @@ tests:
         alertname: OrdersBacklogHigh
         exp_alerts:
           - exp_labels:
-              rabbitmq_queue_name: fulfillment.orders
+              group: fulfillment
+              topic: orders
               severity: ticket
               slo: freshness
             exp_annotations:
               summary: "Placed orders are piling up unprocessed"
-              description: "65 orders are waiting in fulfillment.orders."
+              description: "Consumer group fulfillment is 65 orders behind on orders."
 
   - name: a dead-lettered order raises a ticket
-    interval: 15s
+    interval: 1m
     input_series:
-      - series: 'rabbitmq_message_current{rabbitmq_queue_name="fulfillment.orders.dead", state="ready"}'
-        values: '0 0 0 0 1x12'
+      - series: 'kafka_partition_current_offset_ratio{topic="orders.dlq", partition="0"}'
+        values: '0 0 0 0 0 0 0 0 0 0 0 0 1 1 1'
+      - series: 'kafka_partition_current_offset_ratio{topic="orders", partition="0"}'
+        values: '0+10x15'
     alert_rule_test:
-      - eval_time: 30s
+      - eval_time: 11m
         alertname: OrdersDeadLettered
         exp_alerts: []
-      - eval_time: 3m
+      - eval_time: 13m
         alertname: OrdersDeadLettered
         exp_alerts:
           - exp_labels:
-              rabbitmq_queue_name: fulfillment.orders.dead
+              topic: orders.dlq
               severity: ticket
               slo: correctness
             exp_annotations:
               summary: "Orders were rejected by fulfillment"
-              description: "1 order messages are in the dead-letter queue fulfillment.orders.dead."
+              description: "1 order messages were written to orders.dlq in the last 10 minutes."
 
   - name: repeated restarts raise a ticket
     interval: 1m

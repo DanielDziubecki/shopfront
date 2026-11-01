@@ -13,13 +13,13 @@ loadgen ──HTTP──▶ storefront ─┬─▶ catalog ──────�
                               └─▶ checkout ─┬─▶ cart, catalog
                                             ├─▶ shipping ─▶ PostgreSQL (shipping)
                                             ├─▶ payment
-                                            └─▶ RabbitMQ  (exchange "orders", order.placed)
+                                            └─▶ Kafka topic "orders" (3 partitions, keyed by user)
                                                   │
-                                                  ▼ queue fulfillment.orders
+                                                  ▼ consumer group "fulfillment"
                                                fulfillment ─▶ PostgreSQL (orders)
-                                                  │ rejected messages
+                                                  │ malformed messages
                                                   ▼
-                                               fulfillment.orders.dead
+                                               Kafka topic "orders.dlq"
 ```
 
 | Service | Does | Depends on |
@@ -27,14 +27,14 @@ loadgen ──HTTP──▶ storefront ─┬─▶ catalog ──────�
 | storefront | Public HTML pages and JSON API (port 8080) | catalog, cart, checkout, recommendation |
 | catalog | Products, descriptions and prices | PostgreSQL (`catalog`) |
 | cart | Shopping carts | Valkey |
-| checkout | Prices the cart, quotes shipping, charges the card, publishes the order | cart, catalog, shipping, payment, RabbitMQ |
+| checkout | Prices the cart, quotes shipping, charges the card, publishes the order | cart, catalog, shipping, payment, Kafka |
 | payment | Validates and charges cards (tokenized, internal provider) | |
 | shipping | Shipping quotes from per-country rate tables | PostgreSQL (`shipping`) |
 | recommendation | "You may also like" from product similarity | catalog |
-| fulfillment | Worker: consumes orders, signs invoices, records orders | RabbitMQ, PostgreSQL (`orders`) |
+| fulfillment | Worker: consumes orders, signs invoices, records orders; dead-letters malformed messages | Kafka, PostgreSQL (`orders`) |
 | loadgen | Simulated shoppers browsing, adding to cart and checking out | storefront |
 
-All services are FastAPI apps (fulfillment is a plain asyncio worker) in one [uv](https://docs.astral.sh/uv/) workspace. Shared plumbing lives in [`libs/shopkit`](libs/shopkit): OpenTelemetry setup, JSON logging with trace ids, the app factory and HTTP clients. Every service builds from the same [`Dockerfile`](Dockerfile).
+All services are FastAPI apps (fulfillment is a plain asyncio Kafka consumer) in one [uv](https://docs.astral.sh/uv/) workspace. Shared plumbing lives in [`libs/shopkit`](libs/shopkit): OpenTelemetry setup, JSON logging with trace ids, the app factory and HTTP clients. Every service builds from the same [`Dockerfile`](Dockerfile).
 
 ## Observability (stack A)
 
@@ -42,8 +42,8 @@ Services send traces, metrics and logs over OTLP to the OpenTelemetry Collector,
 
 | Signal | Backend | Notes |
 | --- | --- | --- |
-| Traces | Tempo | HTTP, PostgreSQL, Valkey and RabbitMQ calls are traced end to end, across the queue too. Tempo's metrics generator adds service-graph metrics. |
-| Metrics | Prometheus | Request rate, errors and latency per service from the collector's span metrics connector; container CPU, memory and restarts from Docker; RabbitMQ, PostgreSQL and Valkey metrics from collector receivers; a few business metrics (orders, charges). |
+| Traces | Tempo | HTTP, PostgreSQL, Valkey and Kafka calls are traced end to end, across the topic too. Tempo's metrics generator adds service-graph metrics. |
+| Metrics | Prometheus | Request rate, errors and latency per service from the collector's span metrics connector; container CPU, memory and restarts from Docker; Kafka (including consumer lag), PostgreSQL and Valkey metrics from collector receivers; a few business metrics (orders, charges). |
 | Logs | Loki | JSON logs with trace and span ids; `service_name` label |
 | Alerts | Prometheus rules → Alertmanager | Shown in Grafana under Alerting |
 | Dashboards | Grafana | "Shopfront services" dashboard; data sources linked trace ↔ logs ↔ metrics |
@@ -65,8 +65,8 @@ Symptom-based, service-level alerts ([`alerts/slo.rules.yml`](alerts/slo.rules.y
 | ShippingErrorRateHigh | over 5% of shipping requests fail for 1 min | page |
 | CatalogErrorRateHigh | over 2% of catalog requests fail for 2 min | ticket |
 | RecommendationLatencyHigh | recommendation p95 over 500 ms for 2 min | ticket |
-| OrdersBacklogHigh | over 20 orders waiting for fulfillment for 2 min | ticket |
-| OrdersDeadLettered | any order in the dead-letter queue for 1 min | ticket |
+| OrdersBacklogHigh | the fulfillment consumer group is over 20 orders behind for 2 min | ticket |
+| OrdersDeadLettered | any message written to `orders.dlq` in the last 10 min | ticket |
 | StorefrontTrafficSurge | storefront traffic over 3× its recent average for 2 min | ticket |
 | ContainerRestarting | a container restarts twice within 10 min | ticket |
 
@@ -88,7 +88,6 @@ make down            # stop (make clean also deletes data)
 | Grafana | http://localhost:3000 |
 | Prometheus | http://localhost:9090 |
 | Alertmanager | http://localhost:9093 |
-| RabbitMQ | http://localhost:15672 (shop / shop) |
 
 Development: `uv sync`, then `make check` (ruff, pyright, pytest) and `make check-config` (compose, collector, Prometheus and Alertmanager config, alert rule tests).
 
@@ -96,7 +95,7 @@ Service versions and settings are in [`.env`](.env).
 
 ## Footprint
 
-Measured with `make smoke` after 5 minutes of traffic from 20 simulated shoppers on a 4-CPU, 16 GB Linux machine: 18 containers, **about 1.4 GiB of memory** in total and under one CPU core. The eight Python services use 40–65 MiB each; the largest containers are Tempo (273 MiB), Grafana (261 MiB) and RabbitMQ (145 MiB).
+Measured with `make smoke` after 5 minutes of traffic from 20 simulated shoppers on a 4-CPU, 16 GB Linux machine: 18 containers, **about 1.6 GiB of memory** in total and under one CPU core. The eight Python services use 40–65 MiB each; the largest containers are Kafka (364 MiB), Grafana (258 MiB) and Tempo (220 MiB).
 
 The `stack` workflow repeats the measurement on a GitHub-hosted runner for every pull request and writes it to the run summary.
 

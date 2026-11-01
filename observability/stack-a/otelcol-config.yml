@@ -39,10 +39,9 @@ receivers:
     collection_interval: 15s
     tls:
       insecure: true
-  rabbitmq:
-    endpoint: http://rabbitmq:15672
-    username: shop
-    password: ${env:RABBITMQ_PASSWORD}
+  kafkametrics:
+    brokers: [kafka:9092]
+    scrapers: [brokers, topics, consumers]
     collection_interval: 15s
 
 processors:
@@ -90,7 +89,7 @@ service:
       processors: [resource_detection, memory_limiter]
       exporters: [otlp_grpc/tempo, span_metrics]
     metrics:
-      receivers: [otlp, span_metrics, docker_stats, http_check/storefront, redis/valkey, postgresql, rabbitmq]
+      receivers: [otlp, span_metrics, docker_stats, http_check/storefront, redis/valkey, postgresql, kafkametrics]
       processors: [resource_detection, memory_limiter, filter/drop_sdk_metrics]
       exporters: [otlp_http/prometheus]
     logs:

@@ -7,11 +7,11 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 
-import aio_pika
 import httpx
+from aiokafka import AIOKafkaProducer
 from fastapi import FastAPI, HTTPException
 from opentelemetry import metrics, trace
-from opentelemetry.instrumentation.aio_pika import AioPikaInstrumentor
+from opentelemetry.instrumentation.aiokafka import AIOKafkaInstrumentor
 
 from checkout.models import Order, OrderLine, OrderRequest
 from shopkit.service import create_app, http_client
@@ -23,8 +23,8 @@ CART_URL = os.environ.get("CART_URL", "http://localhost:8002")
 CATALOG_URL = os.environ.get("CATALOG_URL", "http://localhost:8001")
 PAYMENT_URL = os.environ.get("PAYMENT_URL", "http://localhost:8003")
 SHIPPING_URL = os.environ.get("SHIPPING_URL", "http://localhost:8004")
-RABBITMQ_URL = os.environ.get("RABBITMQ_URL", "amqp://shop:shop@localhost/")
-ORDERS_EXCHANGE = "orders"
+KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "localhost:9092")
+ORDERS_TOPIC = "orders"
 
 orders_placed = metrics.get_meter("checkout").create_counter(
     "checkout.orders", description="Orders placed"
@@ -33,14 +33,18 @@ orders_placed = metrics.get_meter("checkout").create_counter(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    AioPikaInstrumentor().instrument()
-    connection = await aio_pika.connect_robust(RABBITMQ_URL)
-    channel = await connection.channel(publisher_confirms=True)
-    app.state.exchange = await channel.declare_exchange(
-        ORDERS_EXCHANGE, aio_pika.ExchangeType.TOPIC, durable=True
+    AIOKafkaInstrumentor().instrument()
+    producer = AIOKafkaProducer(
+        bootstrap_servers=KAFKA_BOOTSTRAP,
+        client_id="checkout",
+        acks="all",
+        enable_idempotence=True,
+        request_timeout_ms=10_000,
     )
+    await producer.start()
+    app.state.producer = producer
     yield
-    await connection.close()
+    await producer.stop()
 
 
 app = create_app("checkout", lifespan)
@@ -128,15 +132,13 @@ async def place_order(req: OrderRequest) -> Order:
     )
     span.set_attribute("app.order_id", order.order_id)
 
-    exchange: aio_pika.abc.AbstractExchange = app.state.exchange
-    await exchange.publish(
-        aio_pika.Message(
-            body=order.model_dump_json().encode(),
-            content_type="application/json",
-            delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
-            message_id=order.order_id,
-        ),
-        routing_key="order.placed",
+    # Keyed by user, so one shopper's orders stay in order on the same partition.
+    producer: AIOKafkaProducer = app.state.producer
+    await producer.send_and_wait(
+        ORDERS_TOPIC,
+        value=order.model_dump_json().encode(),
+        key=order.user_id.encode(),
+        headers=[("event", b"order.placed")],
     )
     await call("cart", cart.delete(f"/carts/{req.user_id}"))
 
