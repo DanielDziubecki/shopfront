@@ -74,6 +74,8 @@ services:
     container_name: tempo
     command:
       - -config.file=/etc/tempo/tempo.yml
+    environment:
+      - GOMEMLIMIT=800MiB  # collect garbage before the container limit is reached
     user: 0:0
     volumes:
       - ./observability/stack-a/tempo.yml:/etc/tempo/tempo.yml:ro
@@ -81,7 +83,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 600M
+          memory: 1G
     restart: unless-stopped
     ports:
       - "127.0.0.1:${TEMPO_PORT}:3200"

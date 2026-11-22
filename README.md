@@ -67,7 +67,7 @@ Symptom-based, service-level alerts ([`alerts/slo.rules.yml`](alerts/slo.rules.y
 | RecommendationLatencyHigh | recommendation p95 over 500 ms for 2 min | ticket |
 | OrdersBacklogHigh | the fulfillment consumer group is over 20 orders behind for 2 min | ticket |
 | OrdersDeadLettered | any message written to `orders.dlq` in the last 10 min | ticket |
-| StorefrontTrafficSurge | storefront traffic over 3× its recent average for 2 min | ticket |
+| StorefrontTrafficSurge | storefront traffic over 3× its median of the previous half hour for 1 min | ticket |
 | ContainerRestarting | a container restarts twice within 10 min | ticket |
 
 Error-ratio alerts also require a minimum request rate. The rules have unit tests in [`alerts/tests/`](alerts/tests/). No notification channel is configured; add a receiver in `observability/stack-a/alertmanager.yml`.
